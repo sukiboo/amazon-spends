@@ -14,8 +14,9 @@ sanctioned way to get the data is the GDPR-style "Request My Data" export.
    - Go to <https://amazon.com/gp/privacycentral/dsar/preview.html>
    - Select **Your Orders** and submit the request
    - Amazon emails a download link within a few hours to a few days
-2. Drop the resulting `Your Orders.zip` into `data/`. The app extracts
-   `Your Amazon Orders/Order History.csv` automatically on first run.
+2. Drop the resulting `Your Orders.zip` into `data/`. The app reads
+   `Your Amazon Orders/Order History.csv` straight out of the zip, so the zip is
+   always the source of truth — replace it to refresh the data.
 3. Install deps:
    ```
    python3 -m venv .venv
@@ -32,13 +33,21 @@ Opens at <http://localhost:8501>.
 
 ## What it shows
 
-- Total spent, order count, item count over the selected date range
-- Bar chart of monthly spend (USD)
+- Net spent, refunded, order count, and item count over the selected date range
+- Bar chart of net monthly spend (USD)
+
+## How refunds are handled
+
+Refunds (from `Your Returns & Refunds/Refund Details.csv`) are subtracted from the
+month of the **original order**, not the month the refund was issued. This gives a
+"what did I actually keep this month" view rather than matching bank-statement
+timing. If you'd rather see refunds in the month they hit your card, that's a
+one-line change in the loader.
 
 ## Caveats
 
 - Spend is summed from the per-line `Total Amount` column. This includes per-line tax
-  but does not net out refunds or precisely allocate order-level shipping/discounts —
-  good enough for trends, not penny-accurate against bank statements.
-- Cancelled orders are excluded; refunds are not (yet) subtracted.
+  but does not precisely allocate order-level shipping/discounts — good enough for
+  trends, not penny-accurate against bank statements.
+- Cancelled orders are excluded.
 - Currency is assumed to be USD (the export confirms this for the current dataset).

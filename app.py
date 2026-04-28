@@ -7,38 +7,51 @@ import streamlit as st
 
 DATA_DIR = Path(__file__).parent / "data"
 ORDERS_ZIP = DATA_DIR / "Your Orders.zip"
-ORDERS_CSV_REL = Path("Your Amazon Orders") / "Order History.csv"
-ORDERS_CSV = DATA_DIR / ORDERS_CSV_REL
+ORDERS_CSV_ENTRY = "Your Amazon Orders/Order History.csv"
+REFUNDS_CSV_ENTRY = "Your Returns & Refunds/Refund Details.csv"
 
 
 @st.cache_data
-def load_orders() -> pd.DataFrame:
-    if not ORDERS_CSV.exists():
-        if not ORDERS_ZIP.exists():
-            raise FileNotFoundError(
-                f"Missing {ORDERS_CSV} and {ORDERS_ZIP}. "
-                "Place the Amazon 'Your Orders.zip' export in data/."
-            )
-        with zipfile.ZipFile(ORDERS_ZIP) as z:
-            z.extract(str(ORDERS_CSV_REL), DATA_DIR)
+def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
+    if not ORDERS_ZIP.exists():
+        raise FileNotFoundError(
+            f"Missing {ORDERS_ZIP}. Place the Amazon 'Your Orders.zip' export in data/."
+        )
+    with zipfile.ZipFile(ORDERS_ZIP) as z:
+        with z.open(ORDERS_CSV_ENTRY) as f:
+            orders = pd.read_csv(f)
+        with z.open(REFUNDS_CSV_ENTRY) as f:
+            refunds = pd.read_csv(f)
 
-    df = pd.read_csv(ORDERS_CSV)
-    df = df[df["Order Status"] != "Cancelled"].copy()
-    df["Order Date"] = pd.to_datetime(df["Order Date"], utc=True)
-    df["Total Amount"] = (
-        df["Total Amount"].astype(str).str.replace(",", "", regex=False).astype(float)
+    orders = orders[orders["Order Status"] != "Cancelled"].copy()
+    orders["Order Date"] = pd.to_datetime(orders["Order Date"], utc=True)
+    orders["Total Amount"] = (
+        orders["Total Amount"].astype(str).str.replace(",", "", regex=False).astype(float)
     )
-    df["Month"] = df["Order Date"].dt.tz_convert(None).dt.to_period("M").dt.to_timestamp()
-    return df
+    orders["Month"] = orders["Order Date"].dt.tz_convert(None).dt.to_period("M").dt.to_timestamp()
+
+    # The export emits multiple `Creation Date` rows per actual refund event (8x in
+    # observed data); dedup on the natural key before summing or amounts inflate ~2x.
+    refunds = refunds.drop_duplicates(subset=["Order ID", "Refund Date", "Refund Amount"]).copy()
+
+    # Attribute each refund to its original order's date so net spend is shown
+    # in the month the purchase was made (option b), not the month of the refund.
+    order_date = orders.drop_duplicates("Order ID").set_index("Order ID")["Order Date"]
+    refunds["Refund Amount"] = refunds["Refund Amount"].astype(float)
+    refunds["Order Date"] = refunds["Order ID"].map(order_date)
+    refunds = refunds.dropna(subset=["Order Date"])
+    refunds["Month"] = refunds["Order Date"].dt.tz_convert(None).dt.to_period("M").dt.to_timestamp()
+
+    return orders, refunds
 
 
 st.set_page_config(page_title="Amazon Spending", layout="wide")
 st.title("Amazon Spending")
 
-df = load_orders()
+orders, refunds = load_data()
 
-min_date = df["Order Date"].min().date()
-max_date = df["Order Date"].max().date()
+min_date = orders["Order Date"].min().date()
+max_date = orders["Order Date"].max().date()
 start, end = st.slider(
     "Date range",
     min_value=min_date,
@@ -47,16 +60,28 @@ start, end = st.slider(
     format="YYYY-MM",
 )
 
-mask = (df["Order Date"].dt.date >= start) & (df["Order Date"].dt.date <= end)
-view = df.loc[mask]
+orders_v = orders.loc[
+    (orders["Order Date"].dt.date >= start) & (orders["Order Date"].dt.date <= end)
+]
+refunds_v = refunds.loc[
+    (refunds["Order Date"].dt.date >= start) & (refunds["Order Date"].dt.date <= end)
+]
 
-c1, c2, c3 = st.columns(3)
-c1.metric("Total spent", f"${view['Total Amount'].sum():,.2f}")
-c2.metric("Orders", f"{view['Order ID'].nunique():,}")
-c3.metric("Items", f"{len(view):,}")
+gross = orders_v["Total Amount"].sum()
+refunded = refunds_v["Refund Amount"].sum()
+net = gross - refunded
 
-monthly = view.groupby("Month", as_index=False)["Total Amount"].sum()
-fig = px.bar(monthly, x="Month", y="Total Amount")
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Net spent", f"${net:,.2f}")
+c2.metric("Refunded", f"${refunded:,.2f}")
+c3.metric("Orders", f"{orders_v['Order ID'].nunique():,}")
+c4.metric("Items", f"{len(orders_v):,}")
+
+monthly_gross = orders_v.groupby("Month")["Total Amount"].sum()
+monthly_refund = refunds_v.groupby("Month")["Refund Amount"].sum()
+monthly = monthly_gross.subtract(monthly_refund, fill_value=0).reset_index(name="Net")
+
+fig = px.bar(monthly, x="Month", y="Net")
 fig.update_layout(
     xaxis_title=None,
     yaxis_title="USD",
