@@ -10,6 +10,16 @@ ORDERS_ZIP = DATA_DIR / "Your Orders.zip"
 ORDERS_CSV_ENTRY = "Your Amazon Orders/Order History.csv"
 REFUNDS_CSV_ENTRY = "Your Returns & Refunds/Refund Details.csv"
 
+APP_NAME = "Amazon Spending Visualizer"
+
+SMA_WINDOW_MONTHS = 12
+DEFAULT_LOOKBACK_YEARS = 5
+BAR_COLOR = "#7cc4ff"
+SMA_COLOR = "#ff4b4b"
+SMA_LINE_WIDTH = 4
+TOOLTIP_FONT_SIZE = 16
+TARGET_X_TICKS = 24
+
 
 @st.cache_data
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
@@ -45,20 +55,47 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     return orders, refunds
 
 
-st.set_page_config(page_title="Amazon Spending", layout="wide")
-st.title("Amazon Spending")
+st.set_page_config(page_title=APP_NAME, layout="wide")
+st.title(APP_NAME)
 
 orders, refunds = load_data()
 
+# Compute the rolling average over the full history once so it stays fixed
+# as the user changes the date-range slider. Reindex to a contiguous monthly
+# range first; otherwise empty months collapse and the rolling window would
+# span more than SMA_WINDOW_MONTHS calendar months.
+full_gross = orders.groupby("Month")["Total Amount"].sum()
+full_refund = refunds.groupby("Month")["Refund Amount"].sum()
+full_net = full_gross.subtract(full_refund, fill_value=0)
+full_idx = pd.date_range(full_net.index.min(), full_net.index.max(), freq="MS")
+full_net = full_net.reindex(full_idx, fill_value=0)
+sma = full_net.rolling(window=SMA_WINDOW_MONTHS, min_periods=1).mean()
+
 min_date = orders["Order Date"].min().date()
 max_date = orders["Order Date"].max().date()
-start, end = st.slider(
-    "Date range",
-    min_value=min_date,
-    max_value=max_date,
-    value=(min_date, max_date),
-    format="YYYY-MM",
+default_start = max(
+    min_date, (pd.Timestamp(max_date) - pd.DateOffset(years=DEFAULT_LOOKBACK_YEARS)).date()
 )
+
+c1, c2, c3, c4 = st.columns(4)
+net_slot = c1.empty()
+refunded_slot = c2.empty()
+orders_slot = c3.empty()
+items_slot = c4.empty()
+
+chart_slot = st.empty()
+
+month_options = [d.strftime("%Y-%m") for d in full_idx]
+default_start_month = pd.Timestamp(default_start).to_period("M").strftime("%Y-%m")
+default_end_month = pd.Timestamp(max_date).to_period("M").strftime("%Y-%m")
+
+start_label, end_label = st.select_slider(
+    "Date range",
+    options=month_options,
+    value=(default_start_month, default_end_month),
+)
+start = pd.Timestamp(start_label).date()
+end = (pd.Timestamp(end_label) + pd.offsets.MonthEnd(0)).date()
 
 orders_v = orders.loc[
     (orders["Order Date"].dt.date >= start) & (orders["Order Date"].dt.date <= end)
@@ -71,20 +108,56 @@ gross = orders_v["Total Amount"].sum()
 refunded = refunds_v["Refund Amount"].sum()
 net = gross - refunded
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Net spent", f"${net:,.2f}")
-c2.metric("Refunded", f"${refunded:,.2f}")
-c3.metric("Orders", f"{orders_v['Order ID'].nunique():,}")
-c4.metric("Items", f"{len(orders_v):,}")
+net_slot.metric("Net spent", f"${net:,.2f}")
+refunded_slot.metric("Refunded", f"${refunded:,.2f}")
+orders_slot.metric("Orders", f"{orders_v['Order ID'].nunique():,}")
+items_slot.metric("Items", f"{len(orders_v):,}")
 
-monthly_gross = orders_v.groupby("Month")["Total Amount"].sum()
-monthly_refund = refunds_v.groupby("Month")["Refund Amount"].sum()
-monthly = monthly_gross.subtract(monthly_refund, fill_value=0).reset_index(name="Net")
+# Snap the slider's date bounds to month-starts so the SMA, which is indexed
+# by month-start timestamps, doesn't get its first/last point filtered out.
+start_month = pd.Timestamp(start).to_period("M").to_timestamp()
+end_month = pd.Timestamp(end).to_period("M").to_timestamp()
+sma_v = sma.loc[(sma.index >= start_month) & (sma.index <= end_month)]
 
-fig = px.bar(monthly, x="Month", y="Net")
+# Slice the contiguous monthly net series so empty months render as 0-height
+# bars rather than gaps. Use a string label as the x-value so the axis is
+# categorical — otherwise the 28–31-day variation between month-starts shows
+# up as uneven gaps on a continuous datetime axis.
+monthly = full_net.loc[start_month:end_month].rename_axis("Month").reset_index(name="Net")
+monthly["Label"] = monthly["Month"].dt.strftime("%b %Y")
+sma_df = sma_v.rename_axis("Month").reset_index(name="Avg")
+sma_df["Label"] = sma_df["Month"].dt.strftime("%b %Y")
+
+fig = px.bar(monthly, x="Label", y="Net", custom_data=["Month"])
+fig.update_traces(
+    marker_color=BAR_COLOR,
+    hovertemplate="<b>$%{y:,.2f}</b><br>%{customdata[0]|%B %Y}<extra></extra>",
+)
+fig.add_scatter(
+    x=sma_df["Label"],
+    y=sma_df["Avg"],
+    mode="lines",
+    name=f"{SMA_WINDOW_MONTHS}-mo avg",
+    line=dict(color=SMA_COLOR, width=SMA_LINE_WIDTH),
+    customdata=sma_df[["Month"]],
+    hovertemplate=(
+        f"<b>$%{{y:,.2f}}</b><br>%{{customdata[0]|%B %Y}}<br>"
+        f"{SMA_WINDOW_MONTHS}-mo average<extra></extra>"
+    ),
+)
+tick_step = max(1, -(-len(monthly) // TARGET_X_TICKS))
+tick_labels = monthly["Label"].iloc[::tick_step].tolist()
+tick_angle = -45 if len(tick_labels) > 12 else 0
 fig.update_layout(
     xaxis_title=None,
     yaxis_title="USD",
     margin=dict(l=0, r=0, t=10, b=0),
+    showlegend=False,
+    hoverlabel=dict(font_size=TOOLTIP_FONT_SIZE),
 )
-st.plotly_chart(fig, width="stretch")
+fig.update_xaxes(
+    tickmode="array",
+    tickvals=tick_labels,
+    tickangle=tick_angle,
+)
+chart_slot.plotly_chart(fig, width="stretch")

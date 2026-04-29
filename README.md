@@ -34,7 +34,8 @@ Opens at <http://localhost:8501>.
 ## What it shows
 
 - Net spent, refunded, order count, and item count over the selected date range
-- Bar chart of net monthly spend (USD)
+- Bar chart of net monthly spend (USD), with a 12-month rolling-average overlay
+  computed over the full history (so the line stays fixed as you adjust the range)
 
 ## How refunds are handled
 
