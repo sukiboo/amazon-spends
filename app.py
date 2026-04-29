@@ -1,3 +1,4 @@
+import textwrap
 import zipfile
 from pathlib import Path
 
@@ -19,6 +20,21 @@ SMA_COLOR = "#ff4b4b"
 SMA_LINE_WIDTH = 4
 TOOLTIP_FONT_SIZE = 16
 TARGET_X_TICKS = 24
+CHART_MARGIN = dict(l=0, r=0, t=10, b=0)
+MONTH_KEY_FORMAT = "%Y-%m"
+MONTH_LABEL_FORMAT = "%b %Y"
+MONTH_FULL_FORMAT = "%B %Y"
+DATE_LONG_FORMAT = "%d %B %Y"
+
+TOP_N_PRODUCTS = 20
+PRODUCT_LABEL_MAX = 32
+PRODUCT_WRAP_WIDTH = 64
+PRODUCT_ROW_HEIGHT = 24
+PRODUCT_CHART_PAD = 60
+PRODUCT_BAR_COLOR = "#a78bfa"
+PRODUCT_BAR_GAP = 0.6
+PRODUCT_LABEL_FONT_SIZE = 14
+PRODUCT_TOOLTIP_FONT_SIZE = 16
 
 
 @st.cache_data
@@ -85,9 +101,9 @@ items_slot = c4.empty()
 
 chart_slot = st.empty()
 
-month_options = [d.strftime("%Y-%m") for d in full_idx]
-default_start_month = pd.Timestamp(default_start).to_period("M").strftime("%Y-%m")
-default_end_month = pd.Timestamp(max_date).to_period("M").strftime("%Y-%m")
+month_options = [d.strftime(MONTH_KEY_FORMAT) for d in full_idx]
+default_start_month = pd.Timestamp(default_start).to_period("M").strftime(MONTH_KEY_FORMAT)
+default_end_month = pd.Timestamp(max_date).to_period("M").strftime(MONTH_KEY_FORMAT)
 
 start_label, end_label = st.select_slider(
     "Date range",
@@ -124,14 +140,14 @@ sma_v = sma.loc[(sma.index >= start_month) & (sma.index <= end_month)]
 # categorical — otherwise the 28–31-day variation between month-starts shows
 # up as uneven gaps on a continuous datetime axis.
 monthly = full_net.loc[start_month:end_month].rename_axis("Month").reset_index(name="Net")
-monthly["Label"] = monthly["Month"].dt.strftime("%b %Y")
+monthly["Label"] = monthly["Month"].dt.strftime(MONTH_LABEL_FORMAT)
 sma_df = sma_v.rename_axis("Month").reset_index(name="Avg")
-sma_df["Label"] = sma_df["Month"].dt.strftime("%b %Y")
+sma_df["Label"] = sma_df["Month"].dt.strftime(MONTH_LABEL_FORMAT)
 
 fig = px.bar(monthly, x="Label", y="Net", custom_data=["Month"])
 fig.update_traces(
     marker_color=BAR_COLOR,
-    hovertemplate="<b>$%{y:,.2f}</b><br>%{customdata[0]|%B %Y}<extra></extra>",
+    hovertemplate=(f"<b>$%{{y:,.2f}}</b><br>%{{customdata[0]|{MONTH_FULL_FORMAT}}}<extra></extra>"),
 )
 fig.add_scatter(
     x=sma_df["Label"],
@@ -141,7 +157,7 @@ fig.add_scatter(
     line=dict(color=SMA_COLOR, width=SMA_LINE_WIDTH),
     customdata=sma_df[["Month"]],
     hovertemplate=(
-        f"<b>$%{{y:,.2f}}</b><br>%{{customdata[0]|%B %Y}}<br>"
+        f"<b>$%{{y:,.2f}}</b><br>%{{customdata[0]|{MONTH_FULL_FORMAT}}}<br>"
         f"{SMA_WINDOW_MONTHS}-mo average<extra></extra>"
     ),
 )
@@ -151,7 +167,7 @@ tick_angle = -45 if len(tick_labels) > 12 else 0
 fig.update_layout(
     xaxis_title=None,
     yaxis_title="USD",
-    margin=dict(l=0, r=0, t=10, b=0),
+    margin=CHART_MARGIN,
     showlegend=False,
     hoverlabel=dict(font_size=TOOLTIP_FONT_SIZE),
 )
@@ -161,3 +177,48 @@ fig.update_xaxes(
     tickangle=tick_angle,
 )
 chart_slot.plotly_chart(fig, width="stretch")
+
+# Top products: gross spend per ASIN over the selected range. Refunds aren't
+# netted here because Refund Details.csv has Order ID but no ASIN, so refunds
+# on multi-item orders can't be cleanly attributed to a product.
+with st.expander("Top products", expanded=False):
+    top = (
+        orders_v.groupby("ASIN", as_index=False)
+        .agg(
+            Spent=("Total Amount", "sum"),
+            Product=("Product Name", "last"),
+            LastDate=("Order Date", "max"),
+        )
+        .nlargest(TOP_N_PRODUCTS, "Spent")
+        .iloc[::-1]
+    )
+    top["Label"] = top["Product"].where(
+        top["Product"].str.len() <= PRODUCT_LABEL_MAX,
+        top["Product"].str.slice(0, PRODUCT_LABEL_MAX - 1) + "…",
+    )
+    top["Wrapped"] = top["Product"].apply(
+        lambda p: textwrap.fill(p, width=PRODUCT_WRAP_WIDTH).replace("\n", "<br>")
+    )
+    top["DateFmt"] = top["LastDate"].dt.strftime(DATE_LONG_FORMAT)
+    top_fig = px.bar(top, x="Spent", y="ASIN", orientation="h", custom_data=["Wrapped", "DateFmt"])
+    top_fig.update_traces(
+        marker_color=PRODUCT_BAR_COLOR,
+        hovertemplate=(
+            "<b>$%{x:,.2f}</b>" "<br><i>%{customdata[1]}</i>" "<br>%{customdata[0]}<extra></extra>"
+        ),
+    )
+    top_fig.update_layout(
+        xaxis_title="USD",
+        yaxis_title=None,
+        margin=CHART_MARGIN,
+        hoverlabel=dict(font_size=PRODUCT_TOOLTIP_FONT_SIZE, align="left"),
+        height=len(top) * PRODUCT_ROW_HEIGHT + PRODUCT_CHART_PAD,
+        bargap=PRODUCT_BAR_GAP,
+    )
+    top_fig.update_yaxes(
+        tickmode="array",
+        tickvals=top["ASIN"],
+        ticktext=top["Label"],
+        tickfont=dict(size=PRODUCT_LABEL_FONT_SIZE),
+    )
+    st.plotly_chart(top_fig, width="stretch")
