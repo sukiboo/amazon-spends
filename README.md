@@ -1,4 +1,6 @@
-# amazon-spends
+# Amazon Spending Visualizer
+
+Have you ever wondered how much you spend on Amazon? Wonder no more!
 
 Streamlit dashboard that visualizes your personal Amazon spending month by month from
 the official Amazon data export.
@@ -36,6 +38,9 @@ Opens at <http://localhost:8501>.
 - Net spent, refunded, order count, and item count over the selected date range
 - Bar chart of net monthly spend (USD), with a 12-month rolling-average overlay
   computed over the full history (so the line stays fixed as you adjust the range)
+- "Most expensive products" expander (collapsed by default): top 20 single line
+  items by spend, listed as individual purchases rather than aggregated per
+  product (so repeat buys of the same item show up multiple times).
 
 ## How refunds are handled
 
@@ -51,4 +56,10 @@ one-line change in the loader.
   but does not precisely allocate order-level shipping/discounts — good enough for
   trends, not penny-accurate against bank statements.
 - Cancelled orders are excluded.
+- **Whole Foods and Amazon Go purchases are excluded** (filtered by `Website` —
+  `panda01` is Amazon's internal marketplace ID for Whole Foods). Rationale:
+  these are physical-store scans, not "real" Amazon online orders, and Whole
+  Foods produce in particular has no real ASINs (Amazon stamps them with a
+  shared `_ASINLESS_` sentinel), so groupings collapse misleadingly. Edit
+  `EXCLUDED_WEBSITES` in `app.py` to change this.
 - Currency is assumed to be USD (the export confirms this for the current dataset).

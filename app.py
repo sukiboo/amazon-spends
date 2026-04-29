@@ -10,13 +10,14 @@ DATA_DIR = Path(__file__).parent / "data"
 ORDERS_ZIP = DATA_DIR / "Your Orders.zip"
 ORDERS_CSV_ENTRY = "Your Amazon Orders/Order History.csv"
 REFUNDS_CSV_ENTRY = "Your Returns & Refunds/Refund Details.csv"
+EXCLUDED_WEBSITES = {"panda01", "Amazon Go"}
 
 APP_NAME = "Amazon Spending Visualizer"
 
 SMA_WINDOW_MONTHS = 12
 DEFAULT_LOOKBACK_YEARS = 5
 BAR_COLOR = "#7cc4ff"
-SMA_COLOR = "#ff4b4b"
+SMA_COLOR = "#16a34a"
 SMA_LINE_WIDTH = 4
 TOOLTIP_FONT_SIZE = 16
 TARGET_X_TICKS = 24
@@ -33,8 +34,8 @@ PRODUCT_ROW_HEIGHT = 24
 PRODUCT_CHART_PAD = 60
 PRODUCT_BAR_COLOR = "#a78bfa"
 PRODUCT_BAR_GAP = 0.6
-PRODUCT_LABEL_FONT_SIZE = 14
-PRODUCT_TOOLTIP_FONT_SIZE = 16
+PRODUCT_LABEL_FONT_SIZE = 16
+PRODUCT_TOOLTIP_FONT_SIZE = 14
 
 
 @st.cache_data
@@ -49,7 +50,12 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
         with z.open(REFUNDS_CSV_ENTRY) as f:
             refunds = pd.read_csv(f)
 
-    orders = orders[orders["Order Status"] != "Cancelled"].copy()
+    orders = orders[orders["Order Status"] != "Cancelled"]
+    # Exclude in-store / grocery channels (Whole Foods is `panda01`, plus the
+    # cashier-less `Amazon Go`) — they're physical-store scans, not Amazon
+    # online orders, and Whole Foods produce in particular collapses badly
+    # under groupby because most rows share the `_ASINLESS_` sentinel ASIN.
+    orders = orders[~orders["Website"].isin(EXCLUDED_WEBSITES)].copy()
     orders["Order Date"] = pd.to_datetime(orders["Order Date"], utc=True)
     orders["Total Amount"] = (
         orders["Total Amount"].astype(str).str.replace(",", "", regex=False).astype(float)
@@ -178,20 +184,21 @@ fig.update_xaxes(
 )
 chart_slot.plotly_chart(fig, width="stretch")
 
-# Top products: gross spend per ASIN over the selected range. Refunds aren't
-# netted here because Refund Details.csv has Order ID but no ASIN, so refunds
-# on multi-item orders can't be cleanly attributed to a product.
-with st.expander("Top products", expanded=False):
+# Top single purchases over the selected range. Each row is one line item — so
+# repeat buys of the same product show up multiple times. Not aggregated by
+# ASIN because Amazon rotates listing titles for the same SKU over time, which
+# made the grouped view show one variant name for a sum of purchases that
+# actually had several different display names (confusing when reading the
+# tooltip). Refunds aren't netted here either: Refund Details.csv has Order ID
+# but no ASIN, so refunds on multi-item orders can't be cleanly attributed.
+with st.expander("Most expensive products", expanded=False):
     top = (
-        orders_v.groupby("ASIN", as_index=False)
-        .agg(
-            Spent=("Total Amount", "sum"),
-            Product=("Product Name", "last"),
-            LastDate=("Order Date", "max"),
-        )
-        .nlargest(TOP_N_PRODUCTS, "Spent")
+        orders_v.nlargest(TOP_N_PRODUCTS, "Total Amount")
+        .rename(columns={"Total Amount": "Spent", "Product Name": "Product", "Order Date": "Date"})
         .iloc[::-1]
+        .reset_index(drop=True)
     )
+    top["Key"] = top.index.astype(str)
     top["Label"] = top["Product"].where(
         top["Product"].str.len() <= PRODUCT_LABEL_MAX,
         top["Product"].str.slice(0, PRODUCT_LABEL_MAX - 1) + "…",
@@ -199,8 +206,8 @@ with st.expander("Top products", expanded=False):
     top["Wrapped"] = top["Product"].apply(
         lambda p: textwrap.fill(p, width=PRODUCT_WRAP_WIDTH).replace("\n", "<br>")
     )
-    top["DateFmt"] = top["LastDate"].dt.strftime(DATE_LONG_FORMAT)
-    top_fig = px.bar(top, x="Spent", y="ASIN", orientation="h", custom_data=["Wrapped", "DateFmt"])
+    top["DateFmt"] = top["Date"].dt.strftime(DATE_LONG_FORMAT)
+    top_fig = px.bar(top, x="Spent", y="Key", orientation="h", custom_data=["Wrapped", "DateFmt"])
     top_fig.update_traces(
         marker_color=PRODUCT_BAR_COLOR,
         hovertemplate=(
@@ -217,7 +224,7 @@ with st.expander("Top products", expanded=False):
     )
     top_fig.update_yaxes(
         tickmode="array",
-        tickvals=top["ASIN"],
+        tickvals=top["Key"],
         ticktext=top["Label"],
         tickfont=dict(size=PRODUCT_LABEL_FONT_SIZE),
     )
