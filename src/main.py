@@ -21,11 +21,12 @@ def run() -> None:
         min_date, (pd.Timestamp(max_date) - pd.DateOffset(years=DEFAULT_LOOKBACK_YEARS)).date()
     )
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3, c4, c5 = st.columns(5)
     net_slot = c1.empty()
-    refunded_slot = c2.empty()
-    orders_slot = c3.empty()
-    items_slot = c4.empty()
+    avg_slot = c2.empty()
+    refunded_slot = c3.empty()
+    orders_slot = c4.empty()
+    items_slot = c5.empty()
 
     chart_slot = st.empty()
 
@@ -51,11 +52,13 @@ def run() -> None:
     gross = orders_v["Total Amount"].sum()
     refunded = refunds_v["Refund Amount"].sum()
     net = gross - refunded
+    n_months = len(pd.period_range(start_label, end_label, freq="M"))
 
     net_slot.metric("Net spent", f"${net:,.2f}")
     refunded_slot.metric("Refunded", f"${refunded:,.2f}")
     orders_slot.metric("Orders", f"{orders_v['Order ID'].nunique():,}")
     items_slot.metric("Items", f"{len(orders_v):,}")
+    avg_slot.metric("Avg/month", f"${net / n_months:,.2f}")
 
     # Snap the slider's date bounds to month-starts so the SMA, which is indexed
     # by month-start timestamps, doesn't get its first/last point filtered out.
