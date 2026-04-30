@@ -1,7 +1,8 @@
 import pandas as pd
 import streamlit as st
 
-from src.constants import APP_NAME, DEFAULT_LOOKBACK_YEARS, MONTH_KEY_FORMAT
+from src import onboarding
+from src.constants import APP_NAME, DEFAULT_LOOKBACK_YEARS, MONTH_KEY_FORMAT, ORDERS_ZIP
 from src.data import load_data
 from src.plots import monthly_spend, top_products
 
@@ -10,7 +11,11 @@ def run() -> None:
     st.set_page_config(page_title=APP_NAME, layout="wide")
     st.title(APP_NAME)
 
-    orders, refunds = load_data()
+    if not ORDERS_ZIP.exists():
+        onboarding.render()
+        return
+
+    orders, refunds = load_data(ORDERS_ZIP.stat().st_mtime)
 
     full_net = monthly_spend.compute_full_net(orders, refunds)
     sma = monthly_spend.compute_sma(full_net)

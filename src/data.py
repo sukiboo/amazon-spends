@@ -40,8 +40,12 @@ def _match_refunds_to_lines(orders: pd.DataFrame, refunds: pd.DataFrame) -> set:
     return refunded_idx
 
 
+# `zip_mtime` is unused inside the function — it's an `@st.cache_data` key so
+# the cache invalidates when the zip is replaced (e.g. user uploads a fresh
+# Amazon export). Without it, the first load would be served forever.
 @st.cache_data
-def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_data(zip_mtime: float) -> tuple[pd.DataFrame, pd.DataFrame]:
+    del zip_mtime  # cache-key only; see comment above
     if not ORDERS_ZIP.exists():
         raise FileNotFoundError(
             f"Missing {ORDERS_ZIP}. Place the Amazon 'Your Orders.zip' export in data/."
