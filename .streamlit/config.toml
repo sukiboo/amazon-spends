@@ -1,0 +1,11 @@
+[client]
+# Hides the "Deploy" button (and other dev-only items) in the top-right toolbar.
+toolbarMode = "minimal"
+
+[theme]
+# primaryColor controls the date-range slider's track + thumb (and any other
+# widget that uses Streamlit's accent color). Kept here rather than in app.py
+# because Streamlit only reads theme settings from this file. `base` is pinned
+# explicitly because Streamlit otherwise defaults the base to "light" once any
+# [theme] key is set, even though dark would be inherited if [theme] were absent.
+base = "dark"
