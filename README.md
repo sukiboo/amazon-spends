@@ -50,6 +50,20 @@ month of the **original order**, not the month the refund was issued. This gives
 timing. If you'd rather see refunds in the month they hit your card, that's a
 one-line change in the loader.
 
+In the "Most expensive products" view, returned items are kept in the list but
+rendered with a strikethrough label and a muted bar (with an `↩ Refunded` note in
+the tooltip). Attribution is tricky here because the refund file has `Order ID` but
+no ASIN, so on a multi-item order the export doesn't say which line was returned.
+The loader works around this by matching each refund to the line in that order
+whose `Total Amount` is closest to the `Refund Amount` within $0.50 (Amazon
+typically refunds the full item including tax, so amounts line up exactly). About
+85% of refunds match cleanly this way; the remaining ~15% are partial refunds,
+restocking fees, or shipping-only credits that don't equal any single line — those
+leave their lines un-flagged on purpose, since flagging the whole order would
+strike out kept items too. The dollar totals in the bar chart and "Net spent"
+metric still subtract **every** refund regardless of match status, so monetary
+accuracy is unaffected — only the per-line flag is best-effort.
+
 ## Caveats
 
 - Spend is summed from the per-line `Total Amount` column. This includes per-line tax
