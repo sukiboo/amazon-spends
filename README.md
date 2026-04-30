@@ -61,5 +61,5 @@ one-line change in the loader.
   these are physical-store scans, not "real" Amazon online orders, and Whole
   Foods produce in particular has no real ASINs (Amazon stamps them with a
   shared `_ASINLESS_` sentinel), so groupings collapse misleadingly. Edit
-  `EXCLUDED_WEBSITES` in `app.py` to change this.
+  `EXCLUDED_WEBSITES` in `src/constants.py` to change this.
 - Currency is assumed to be USD (the export confirms this for the current dataset).
