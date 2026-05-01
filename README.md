@@ -1,3 +1,15 @@
+---
+title: Amazon Spending Visualizer
+emoji: 📦
+colorFrom: blue
+colorTo: indigo
+sdk: streamlit
+sdk_version: 1.56.0
+app_file: app.py
+pinned: false
+python_version: "3.12"
+---
+
 # Amazon Spending Visualizer
 
 Have you ever wondered how much you spend on Amazon? Wonder no more!
@@ -18,7 +30,9 @@ sanctioned way to get the data is the GDPR-style "Request My Data" export.
    - Amazon emails a download link within a few hours to a few days
 2. Drop the resulting `Your Orders.zip` into `data/`. The app reads
    `Your Amazon Orders/Order History.csv` straight out of the zip, so the zip is
-   always the source of truth — replace it to refresh the data.
+   always the source of truth — replace it to refresh the data. (You can also
+   skip this step and upload the zip through the in-app uploader at runtime,
+   which is how the hosted Hugging Face Space works.)
 3. Install deps:
    ```
    python3 -m venv .venv

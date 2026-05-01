@@ -7,15 +7,25 @@ from src.data import load_data
 from src.plots import monthly_spend, top_products
 
 
+def _resolve_zip_bytes() -> bytes | None:
+    # Disk wins so local users keep the "drop once into data/" UX. Session-state
+    # is the upload path used on Hugging Face Spaces (and any other hosted
+    # deployment) where there's no persistent filesystem.
+    if ORDERS_ZIP.exists():
+        return ORDERS_ZIP.read_bytes()
+    return st.session_state.get("uploaded_zip")
+
+
 def run() -> None:
     st.set_page_config(page_title=APP_NAME, layout="wide")
     st.title(APP_NAME)
 
-    if not ORDERS_ZIP.exists():
+    zip_bytes = _resolve_zip_bytes()
+    if zip_bytes is None:
         onboarding.render()
         return
 
-    orders, refunds = load_data(ORDERS_ZIP.stat().st_mtime)
+    orders, refunds = load_data(zip_bytes)
 
     full_net = monthly_spend.compute_full_net(orders, refunds)
     sma = monthly_spend.compute_sma(full_net)

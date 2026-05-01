@@ -1,14 +1,10 @@
+import io
 import zipfile
 
 import pandas as pd
 import streamlit as st
 
-from src.constants import (
-    EXCLUDED_WEBSITES,
-    ORDERS_CSV_ENTRY,
-    ORDERS_ZIP,
-    REFUNDS_CSV_ENTRY,
-)
+from src.constants import EXCLUDED_WEBSITES, ORDERS_CSV_ENTRY, REFUNDS_CSV_ENTRY
 
 # Tolerance (USD) for matching a refund row to a specific line item by amount.
 # Refund Details.csv has Order ID but no ASIN, so to flag the actual returned
@@ -40,17 +36,9 @@ def _match_refunds_to_lines(orders: pd.DataFrame, refunds: pd.DataFrame) -> set:
     return refunded_idx
 
 
-# `zip_mtime` is unused inside the function — it's an `@st.cache_data` key so
-# the cache invalidates when the zip is replaced (e.g. user uploads a fresh
-# Amazon export). Without it, the first load would be served forever.
 @st.cache_data
-def load_data(zip_mtime: float) -> tuple[pd.DataFrame, pd.DataFrame]:
-    del zip_mtime  # cache-key only; see comment above
-    if not ORDERS_ZIP.exists():
-        raise FileNotFoundError(
-            f"Missing {ORDERS_ZIP}. Place the Amazon 'Your Orders.zip' export in data/."
-        )
-    with zipfile.ZipFile(ORDERS_ZIP) as z:
+def load_data(zip_bytes: bytes) -> tuple[pd.DataFrame, pd.DataFrame]:
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as z:
         with z.open(ORDERS_CSV_ENTRY) as f:
             orders = pd.read_csv(f)
         with z.open(REFUNDS_CSV_ENTRY) as f:
