@@ -2,7 +2,7 @@
 title: Amazon Spending Visualizer
 emoji: 📦
 colorFrom: blue
-colorTo: indigo
+colorTo: yellow
 sdk: docker
 app_port: 8501
 pinned: false

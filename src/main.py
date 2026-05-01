@@ -16,6 +16,29 @@ def _resolve_zip_bytes() -> bytes | None:
     return st.session_state.get("uploaded_zip")
 
 
+# (divisor, suffix) tiers, smallest first. The loop tries each tier in order
+# and bails out at the first one whose formatted representation fits the
+# 3-digit budget — so 999,999 falls through K (would round to "1000") and
+# lands cleanly in M as "1.0M".
+_TIERS = ((1_000, "K"), (1_000_000, "M"), (1_000_000_000, "B"))
+
+
+def _compact(value: float) -> str:
+    """Format a number to ≤3 digits with K/M/B suffixes (≤4 below 10,000)."""
+    if abs(value) < 10_000:
+        return f"{value:,.0f}"
+    for divisor, suffix in _TIERS:
+        scaled = value / divisor
+        if abs(scaled) >= 100:
+            text = f"{round(scaled):d}"
+        else:
+            text = f"{round(scaled, 1):.1f}".rstrip("0").rstrip(".")
+        if sum(c.isdigit() for c in text) <= 3:
+            return f"{text}{suffix}"
+    divisor, suffix = _TIERS[-1]
+    return f"{value / divisor:.0f}{suffix}"
+
+
 def run() -> None:
     st.set_page_config(page_title=APP_NAME, layout="wide")
     st.title(APP_NAME)
@@ -69,11 +92,11 @@ def run() -> None:
     net = gross - refunded
     n_months = len(pd.period_range(start_label, end_label, freq="M"))
 
-    net_slot.metric("Net spent", f"${net:,.2f}")
-    refunded_slot.metric("Refunded", f"${refunded:,.2f}")
-    orders_slot.metric("Orders", f"{orders_v['Order ID'].nunique():,}")
-    items_slot.metric("Items", f"{len(orders_v):,}")
-    avg_slot.metric("Avg/month", f"${net / n_months:,.2f}")
+    net_slot.metric("Net spent", f"${_compact(net)}")
+    refunded_slot.metric("Refunded", f"${_compact(refunded)}")
+    orders_slot.metric("Orders", _compact(orders_v["Order ID"].nunique()))
+    items_slot.metric("Items", _compact(len(orders_v)))
+    avg_slot.metric("Avg/month", f"${_compact(net / n_months)}")
 
     # Snap the slider's date bounds to month-starts so the SMA, which is indexed
     # by month-start timestamps, doesn't get its first/last point filtered out.
