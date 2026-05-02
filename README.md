@@ -13,6 +13,8 @@ pinned: false
 Streamlit dashboard that visualizes your personal Amazon spending month by month
 from the official Amazon data export.
 
+<img width="1200" alt="app preview" src="https://github.com/user-attachments/assets/a3eaf28b-4349-457b-9be9-34f83b336936" />
+
 ## Run it
 
 - **Hosted:** <https://huggingface.co/spaces/sukiboo/amazon-spends> — upload
