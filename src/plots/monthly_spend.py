@@ -75,10 +75,23 @@ def render(
         margin=CHART_MARGIN,
         showlegend=False,
         hoverlabel=dict(font_size=TOOLTIP_FONT_SIZE),
+        # Box-select feeds the date slider via on_select; Streamlit's
+        # plotly_chart can't capture zoom/relayout, so this can't be zoom.
+        dragmode="select",
+        # Full-y selection box: a bar is included by x position alone.
+        selectdirection="h",
+        # Clear any stale selection rectangle on re-render.
+        selections=[],
     )
     fig.update_xaxes(
         tickmode="array",
         tickvals=tick_labels,
         tickangle=tick_angle,
     )
-    container.plotly_chart(fig, width="stretch")
+    container.plotly_chart(
+        fig,
+        width="stretch",
+        on_select="rerun",
+        selection_mode="box",
+        key="monthly_chart",
+    )

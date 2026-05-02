@@ -68,29 +68,59 @@ def run() -> None:
 
     chart_slot = st.empty()
 
+    # Slider options append one sentinel month past the last data month so
+    # the right handle is exclusive — a single-month selection still spans a
+    # tick instead of collapsing both handles onto the same point.
     month_options = [d.strftime(MONTH_KEY_FORMAT) for d in full_net.index]
+    month_options.append(
+        (full_net.index.max() + pd.offsets.MonthBegin(1)).strftime(MONTH_KEY_FORMAT)
+    )
     default_start_month = pd.Timestamp(default_start).to_period("M").strftime(MONTH_KEY_FORMAT)
-    default_end_month = pd.Timestamp(max_date).to_period("M").strftime(MONTH_KEY_FORMAT)
+    default_end_month = month_options[-1]
+
+    # Sync slider to chart's box-selection. Chart x uses MONTH_LABEL_FORMAT
+    # ("Apr 2024"); convert to match month_options. _last_chart_selection
+    # prevents the still-present selection from clobbering manual slider moves.
+    points = (st.session_state.get("monthly_chart") or {}).get("selection", {}).get("points", [])
+    selected_keys = sorted({pd.Timestamp(p["x"]).strftime(MONTH_KEY_FORMAT) for p in points})
+    if selected_keys != st.session_state.get("_last_chart_selection"):
+        if selected_keys:
+            end_idx = month_options.index(selected_keys[-1]) + 1
+            st.session_state["date_range"] = (selected_keys[0], month_options[end_idx])
+        st.session_state["_last_chart_selection"] = selected_keys
+
+    # Enforce a 1-month minimum span — st.select_slider lets the user drag
+    # both handles onto the same tick, which would collapse the range and
+    # produce empty queries. Nudge the right handle out by one (or the left
+    # in, if we're already at the sentinel).
+    rng = st.session_state.get("date_range")
+    if rng and rng[0] == rng[1]:
+        idx = month_options.index(rng[0])
+        if idx + 1 < len(month_options):
+            st.session_state["date_range"] = (rng[0], month_options[idx + 1])
+        else:
+            st.session_state["date_range"] = (month_options[idx - 1], rng[1])
 
     start_label, end_label = st.select_slider(
         "Date range",
         options=month_options,
         value=(default_start_month, default_end_month),
+        key="date_range",
     )
     start = pd.Timestamp(start_label).date()
-    end = (pd.Timestamp(end_label) + pd.offsets.MonthEnd(0)).date()
+    end_exclusive = pd.Timestamp(end_label).date()
 
     orders_v = orders.loc[
-        (orders["Order Date"].dt.date >= start) & (orders["Order Date"].dt.date <= end)
+        (orders["Order Date"].dt.date >= start) & (orders["Order Date"].dt.date < end_exclusive)
     ]
     refunds_v = refunds.loc[
-        (refunds["Order Date"].dt.date >= start) & (refunds["Order Date"].dt.date <= end)
+        (refunds["Order Date"].dt.date >= start) & (refunds["Order Date"].dt.date < end_exclusive)
     ]
 
     gross = orders_v["Total Amount"].sum()
     refunded = refunds_v["Refund Amount"].sum()
     net = gross - refunded
-    n_months = len(pd.period_range(start_label, end_label, freq="M"))
+    n_months = month_options.index(end_label) - month_options.index(start_label)
 
     net_slot.metric("Net spent", f"${_compact(net)}")
     refunded_slot.metric("Refunded", f"${_compact(refunded)}")
@@ -98,10 +128,8 @@ def run() -> None:
     items_slot.metric("Items", _compact(len(orders_v)))
     avg_slot.metric("Avg/month", f"${_compact(net / n_months)}")
 
-    # Snap the slider's date bounds to month-starts so the SMA, which is indexed
-    # by month-start timestamps, doesn't get its first/last point filtered out.
-    start_month = pd.Timestamp(start).to_period("M").to_timestamp()
-    end_month = pd.Timestamp(end).to_period("M").to_timestamp()
+    start_month = pd.Period(start_label, freq="M").to_timestamp()
+    end_month = (pd.Period(end_label, freq="M") - 1).to_timestamp()
 
     monthly_spend.render(chart_slot, full_net, sma, start_month, end_month)
     top_products.render(orders_v)
