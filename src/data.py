@@ -54,6 +54,12 @@ def load_data(zip_bytes: bytes) -> tuple[pd.DataFrame, pd.DataFrame]:
     orders["Total Amount"] = (
         orders["Total Amount"].astype(str).str.replace(",", "", regex=False).astype(float)
     )
+    # Drop $0 lines: item-level cancellations within a multi-item order
+    # (Original Quantity = 0, order itself stayed Closed), free replacements
+    # for damaged/missing goods, fully-discounted promos, and Prime
+    # Try-Before-You-Buy returns. None reflect real spending and they pollute
+    # the "Most expensive products" tail when the date window is narrow.
+    orders = orders[orders["Total Amount"] > 0]
     orders["Month"] = orders["Order Date"].dt.tz_convert(None).dt.to_period("M").dt.to_timestamp()
 
     # The export emits multiple `Creation Date` rows per actual refund event (8x in
